@@ -480,7 +480,7 @@ class FFmpegMetadataPP(FFmpegPostProcessor):
             metadata_filename = replace_extension(filename, 'meta')
             with io.open(metadata_filename, 'wt', encoding='utf-8') as f:
                 def ffmpeg_escape(text):
-                    return re.sub(r'(=|;|#|\\|\n)', r'\\\1', text)
+                    return re.sub(r'([=;#\\\n])', r'\\\1', text)
 
                 metadata_file_content = ';FFMETADATA1\n'
                 for chapter in chapters:
@@ -644,3 +644,83 @@ class FFmpegSubtitlesConvertorPP(FFmpegPostProcessor):
                 }
 
         return sub_filenames, info
+
+class FFmpegMergerAndMetadataPP(FFmpegPostProcessor):
+    def run(self, info):
+        metadata = {}
+
+        def add(meta_list, info_list=None):
+            if not info_list:
+                info_list = meta_list
+            if not isinstance(meta_list, (list, tuple)):
+                meta_list = (meta_list,)
+            if not isinstance(info_list, (list, tuple)):
+                info_list = (info_list,)
+            for info_f in info_list:
+                if info.get(info_f) is not None:
+                    for meta_f in meta_list:
+                        metadata[meta_f] = info[info_f]
+                    break
+
+        add('title', ('track', 'title'))
+        add('date', 'upload_date')
+        add(('description', 'comment'), 'description')
+        add('purl', 'webpage_url')
+        add('track', 'track_number')
+        add('artist', ('artist', 'creator', 'uploader', 'uploader_id'))
+        add('genre')
+        add('album')
+        add('album_artist')
+        add('disc', 'disc_number')
+
+        if not metadata:
+            self._downloader.to_screen('[ffmpeg] There isn\'t any metadata to add')
+
+        filename = info['filepath']
+        temp_filename = prepend_extension(filename, 'temp')
+        in_filenames = info['__files_to_merge']
+        args = ['-c', 'copy', '-map', '0:v:0', '-map', '1:a:0']
+
+        for (name, value) in metadata.items():
+            args.extend(['-metadata', '%s=%s' % (name, value)])
+
+        chapters = info.get('chapters', [])
+        if chapters:
+            metadata_filename = replace_extension(filename, 'meta')
+            with io.open(metadata_filename, 'wt', encoding='utf-8') as f:
+                def ffmpeg_escape(text):
+                    return re.sub(r'([=;#\\\n])', r'\\\1', text)
+
+                metadata_file_content = ';FFMETADATA1\n'
+                for chapter in chapters:
+                    metadata_file_content += '[CHAPTER]\nTIMEBASE=1/1000\n'
+                    metadata_file_content += 'START=%d\n' % (chapter['start_time'] * 1000)
+                    metadata_file_content += 'END=%d\n' % (chapter['end_time'] * 1000)
+                    chapter_title = chapter.get('title')
+                    if chapter_title:
+                        metadata_file_content += 'title=%s\n' % ffmpeg_escape(chapter_title)
+                f.write(metadata_file_content)
+                in_filenames.append(metadata_filename)
+                args.extend(['-map_metadata', '1'])
+
+        self._downloader.to_screen('[ffmpeg] Merging formats %sinto "%s"' % ('and adding metadata ' if metadata else '', filename))
+        self.run_ffmpeg_multiple_files(in_filenames, temp_filename, args)
+        os.rename(encodeFilename(temp_filename), encodeFilename(filename))
+        return info['__files_to_merge'], info
+
+    def can_merge(self):
+        # TODO: figure out merge-capable ffmpeg version
+        if self.basename != 'avconv':
+            return True
+
+        required_version = '10-0'
+        if is_outdated_version(
+                self._versions[self.basename], required_version):
+            warning = ('Your copy of %s is outdated and unable to properly mux separate video and audio files, '
+                       'youtube-dl will download single file media. '
+                       'Update %s to version %s or newer to fix this.') % (
+                           self.basename, self.basename, required_version)
+            if self._downloader:
+                self._downloader.report_warning(warning)
+            return False
+        return True

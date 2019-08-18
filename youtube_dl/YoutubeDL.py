@@ -105,6 +105,7 @@ from .postprocessor import (
     FFmpegMergerPP,
     FFmpegPostProcessor,
     get_postprocessor,
+
 )
 from .version import __version__
 
@@ -2050,8 +2051,12 @@ class YoutubeDL(object):
         if ie_info.get('__postprocessors') is not None:
             pps_chain.extend(ie_info['__postprocessors'])
         pps_chain.extend(self._pps)
-        for pp in pps_chain:
+
+        # Horrible hack
+        from .postprocessor import FFmpegMetadataPP, FFmpegMergerAndMetadataPP
+        if isinstance(pps_chain[0], FFmpegMergerPP) and isinstance(pps_chain[1], FFmpegMetadataPP) and len(pps_chain) == 2:
             files_to_delete = []
+            pp = FFmpegMergerAndMetadataPP(self)
             try:
                 files_to_delete, info = pp.run(info)
             except PostProcessingError as e:
@@ -2063,6 +2068,20 @@ class YoutubeDL(object):
                         os.remove(encodeFilename(old_filename))
                     except (IOError, OSError):
                         self.report_warning('Unable to remove downloaded original file')
+        else:
+            for pp in pps_chain:
+                files_to_delete = []
+                try:
+                    files_to_delete, info = pp.run(info)
+                except PostProcessingError as e:
+                    self.report_error(e.msg)
+                if files_to_delete and not self.params.get('keepvideo', False):
+                    for old_filename in files_to_delete:
+                        self.to_screen('Deleting original file %s (pass -k to keep)' % old_filename)
+                        try:
+                            os.remove(encodeFilename(old_filename))
+                        except (IOError, OSError):
+                            self.report_warning('Unable to remove downloaded original file')
 
     def _make_archive_id(self, info_dict):
         video_id = info_dict.get('id')

@@ -12,6 +12,7 @@ from .ffmpeg import (
     FFmpegMetadataPP,
     FFmpegVideoConvertorPP,
     FFmpegSubtitlesConvertorPP,
+    FFmpegMergerAndMetadataPP,
 )
 from .xattrpp import XAttrMetadataPP
 from .execafterdownload import ExecAfterDownloadPP
@@ -37,4 +38,5 @@ __all__ = [
     'FFmpegVideoConvertorPP',
     'MetadataFromTitlePP',
     'XAttrMetadataPP',
+    'FFmpegMergerAndMetadataPP'
 ]
