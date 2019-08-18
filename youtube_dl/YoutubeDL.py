@@ -105,7 +105,6 @@ from .postprocessor import (
     FFmpegMergerPP,
     FFmpegPostProcessor,
     get_postprocessor,
-
 )
 from .version import __version__
 
